@@ -1,0 +1,715 @@
+<html xmlns:t xmlns:v="urn:schemas-microsoft-com:vml">
+<head>
+    <title>Coloroid</title>
+    <hta:application applicationname="Coloroid" version="1.0" windowstate="maximize" />
+    
+    <meta name="author" content="Javad Bayat">
+    <meta http-equiv="content-type" content="text/html; charset = UTF-8">
+    <meta http-equiv="MSThemeCompatible" content="Yes">
+
+    <?import namespace="t" implementation="omegathread.htc" ?>
+    
+    <object id="objImageList" classid="clsid:556C2772-F1AD-4DE1-8456-BD6E8F66113B"></object>
+    <object id="objDisabledImageList" classid="clsid:556C2772-F1AD-4DE1-8456-BD6E8F66113B"></object>
+
+    <t:thread id="communicationThread" slanguage="jscript">
+    <script>
+    var xmldoc = new ActiveXObject("Microsoft.XMLDOM");
+    xmldoc.async = false;
+    
+    while (1) {
+        var request = takeRequest();
+        window.document.all.tdRequestStatus.innerText = request.description;
+        
+        var s = xmldoc.load(request.url);
+        if (s)
+            request.onrespond(xmldoc.documentElement);
+        else
+            request.onfail(xmldoc.parseError);
+        
+        window.document.all.tdRequestStatus.innerText = "";
+    }
+    
+    function takeRequest() {
+        if (!window.requestQueue.length)
+            window.requestEnd = requestEnd;
+        
+        while (!window.requestQueue.length)
+            threadc.sleep(1000);
+        
+        window.requestEnd = null;
+        return window.requestQueue.shift();
+    }
+    
+    function requestEnd(url) {
+        xmldoc.load(url);
+    }
+    </script>
+    </t:thread>
+    
+    <script language="jscript">
+    var requestQueue = [], requestEnd = null;
+    var commTMID = 0;
+    
+    var fso = new ActiveXObject("Scripting.FileSystemObject");
+    var wshShell = new ActiveXObject("WScript.Shell");
+    var wshNetwork = new ActiveXObject("WScript.Network");
+    wshShell.CurrentDirectory = fso.GetParentFolderName(location.pathname);
+    
+    var serverAddress = "", sessionKey = "";
+    var lastError = null, cErrors = 0;
+    
+    var paletteColors = ["#000000", "#ff0000", "#008000", "#ffff00", "#0000ff", "#ff00ff", "#00ffff", "#ffffff"];
+    var activeColor = null;
+    var canvasWidth = 0, canvasHeight = 0;
+    var pixelColors = [];
+    var isDrawing = false;
+    
+    var lastSelectedDur;
+    
+    Array.prototype.clear = function() {
+        this.splice(0, this.length);
+    };
+
+    onload = function() {
+        commTMID = communicationThread.start();
+        
+        document.all.txtComputerName.value = wshNetwork.ComputerName;
+        document.all.txtDeviceToken.focus();
+        
+        document.all.btnConnect.onclick = createSession;
+        document.all.txtDeviceToken.onchange = new Function('this.style.backgroundColor = "";');
+        
+        var icons = new PicturePack("assets\\images\\toolbar-icons.tif");
+        objImageList.ListImages.Add(1, "Battery", icons.page(1));
+        objImageList.ListImages.Add(2, "Sun", icons.page(2));
+        objImageList.ListImages.Add(3, "Sign", icons.page(3));
+        objImageList.ListImages.Add(4, "Flashlight", icons.page(4));
+        objImageList.ListImages.Add(5, "Burst", icons.page(5));
+        objImageList.ListImages.Add(6, "Coffee", icons.page(6));
+        
+        icons = new PicturePack("assets\\images\\toolbar-icons-disabled.tif");
+        objDisabledImageList.ListImages.Add(1, "Battery", icons.page(1));
+        objDisabledImageList.ListImages.Add(2, "Sun", icons.page(2));
+        objDisabledImageList.ListImages.Add(3, "Sign", icons.page(3));
+        objDisabledImageList.ListImages.Add(4, "Flashlight", icons.page(4));
+        objDisabledImageList.ListImages.Add(5, "Burst", icons.page(5));
+        objDisabledImageList.ListImages.Add(6, "Coffee", icons.page(6));
+        
+        objToolbar.ImageList = objToolbar.HotImageList = objImageList;
+        objToolbar.DisabledImageList = objDisabledImageList;
+        objToolbar.Wrappable = false;
+        
+        var button;
+        button = objToolbar.Buttons.Add(1, "ResetCanvas", "Reset Canvas", 0, "Burst");
+        button.ToolTipText = "Make a blank canvas with the latest screen size";
+        button = objToolbar.Buttons.Add(2, "EndSession", "Log Out", 0, "Sign");
+        button.ToolTipText = "Disconnect from the device";
+        button = objToolbar.Buttons.Add(3, "Sep1", "", 3);
+        button = objToolbar.Buttons.Add(4, "Flashlight", "Flashlight", 1, "Flashlight");
+        button.ToolTipText = "Toggle LED Torch on device";
+        button = objToolbar.Buttons.Add(5, "Vibrate", "Vibrate", 5, "Coffee");
+        button.ToolTipText = "Vibrate the device";
+        button.ButtonMenus.Add(1, "OneSec", "1s");
+        button.ButtonMenus.Add(2, "TwoSec", "2s");
+        button.ButtonMenus.Add(3, "FourSec", "4s");
+        button.ButtonMenus.Add(4, "EightSec", "8s");
+        button = objToolbar.Buttons.Add(6, "Brightness", "Brightness", 1, "Sun");
+        button.ToolTipText = "Adjust the screen brightness of the device";
+        button = objToolbar.Buttons.Add(7, "BatteryStatus", "Battery Status", 0, "Battery");
+        button.ToolTipText = "Get the status of the device battery";
+        button.Enabled = false;
+        
+        objSlider.Min = 0;
+        objSlider.Max = 255;
+        
+        var row = tblPalette.insertRow();
+        for (var i = 0; i < paletteColors.length; i++) {
+            var cell = row.insertCell();
+            cell.width = 40;
+            cell.align = "center";
+            cell.valign = "middle";
+            
+            var colorItem = document.createElement("v:oval");
+            colorItem.style.width = "20px";
+            colorItem.style.height = "20px";
+            colorItem.fillcolor = paletteColors[i];
+            colorItem.colorID = String.fromCharCode(65 + i);
+            colorItem.onclick = selectColor;
+            cell.appendChild(colorItem);
+        }
+        
+        activeColor = tblPalette.cells[0].firstChild;
+        activeColor.style.width = "30px";
+        activeColor.style.height = "30px";
+        
+        tblStatusBar.cells[1].onmouseover = showLastError;
+        tblStatusBar.cells[1].onmouseout = hideLastError;
+        tblStatusBar.cells[1].onclick = clearErrors;
+        
+        function PicturePack(tiffName) {
+            var tiff = new ActiveXObject("WIA.ImageFile");
+            tiff.LoadFile(tiffName);
+            
+            this.count = tiff.FrameCount;
+            this.page = function(index) {
+                with (tiff) {
+                    ActiveFrame = index;
+                    return ARGBData.Picture(Width, Height);
+                }
+            };
+        }
+    };
+    
+    document.onselectstart = document.oncontextmenu = function() {
+        var srcElem = event.srcElement;
+        
+        if ((srcElem.tagName.toLowerCase() == "input") && (srcElem.type.toLowerCase() == "text"))
+            return true;
+        
+        if (srcElem.tagName.toLowerCase() == "textarea")
+            return true;
+        
+        if (srcElem.tagName.toLowerCase() == "intbox")
+            return true;
+        
+        return false;
+    };
+    
+    document.onkeyup = function() {
+        switch (event.keyCode) {
+        case 76 :
+            if (event.ctrlKey) {
+                if (sessionKey)
+                    endSession();
+            }
+            break;
+        case 82 :
+            if (event.ctrlKey) {
+                if (sessionKey)
+                    resetCanvas();
+            }
+            break;
+        }
+    }
+    
+    function createSession() {
+        var serverIP = ipAddressFromToken(document.all.txtDeviceToken.value);
+        if (!serverIP) {
+            document.all.txtDeviceToken.style.backgroundColor = "#ff8080";
+            document.all.txtDeviceToken.focus();
+            return;
+        }
+        
+        serverAddress = "http://" + serverIP + ":8000/";
+        
+        var request = new Object;
+        request.url = serverAddress + "start?name=" + wshNetwork.ComputerName;
+        request.description = "";
+        request.onrespond = function(response) {
+            disableForm(false);
+            spinner.style.display = "none";
+            
+            var s = Number(response.getAttribute("status"));
+            if (isNaN(s) || (s != 0)) {
+                bConnErrorTitle.innerText = "Failed to create a session";
+                spnConnErrorReason.innerText = response.text;
+                spnConnErrorCode.innerText = s;
+                divConnError.style.display = "";
+            }
+            else {
+                sessionKey = response.text;
+                
+                frmSessionCreation.style.display = "none";
+                divSessionControl.style.display = "";
+                document.title = "Coloroid [In Session]";
+                
+                document.body.style.margin = 0;
+                document.body.style.padding = 0;
+                document.body.scroll = "no";
+                
+                onresize = adjustLayout;
+                setTimeout(adjustLayout, 100);
+                
+                lastSelectedDur = 1000;
+                objToolbar.Buttons.Item("Brightness").Value = 0;
+                objSlider.style.display = "none";
+                
+                divCanvasContainer.attachEvent("onmousedown", startDrawing);
+                divCanvasContainer.attachEvent("onmousemove", plotPixel);
+                divCanvasContainer.attachEvent("onmouseup", stopDrawing);
+                divCanvasContainer.attachEvent("onmouseleave", stopDrawing);
+                divCanvasContainer.attachEvent("onscroll", preventDrawing);
+                
+                resetCanvas();
+            }
+        };
+        request.onfail = function(connError) {
+            disableForm(false);
+            spinner.style.display = "none";
+            
+            bConnErrorTitle.innerText = "Failed to connect to your device";
+            spnConnErrorReason.innerText = connError.reason;
+            spnConnErrorCode.innerText = getHRESULT(connError.errorCode);
+            divConnError.style.display = "";
+        };
+        requestQueue.push(request);
+        
+        disableForm(true);
+        spinner.style.display = "";
+        divConnError.style.display = "none";
+        
+        function disableForm(bDisable) {
+            document.all.txtComputerName.disabled = bDisable;
+            document.all.txtDeviceToken.disabled = bDisable;
+            document.all.btnConnect.disabled = bDisable;
+        }
+    }
+    
+    function endSession() {
+        if (!requestEnd) {
+            alert("You cannot log out at this time because there are pending requests");
+            return;
+        }
+        
+        requestEnd(serverAddress + sessionKey + "/end");
+        sessionKey = "";
+        
+        clearErrors();
+        tblPalette.cells[0].firstChild.click();
+        
+        objToolbar.Buttons.Item("Flashlight").Value = 0;
+        
+        divCanvasContainer.detachEvent("onmousedown", startDrawing);
+        divCanvasContainer.detachEvent("onmousemove", plotPixel);
+        divCanvasContainer.detachEvent("onmouseup", stopDrawing);
+        divCanvasContainer.detachEvent("onmouseleave", stopDrawing);
+        divCanvasContainer.detachEvent("onscroll", preventDrawing);
+        isDrawing = false;
+        
+        onresize = null;
+        document.body.scroll = "auto";
+        document.body.style.removeAttribute("margin");
+        document.body.style.removeAttribute("padding");
+        document.title = "Coloroid";
+        
+        divSessionControl.style.display = "none";
+        frmSessionCreation.style.display = "";
+    }
+    
+    function adjustLayout() {
+        divSessionControl.style.width = document.body.clientWidth;
+        objToolbar.style.width = document.body.clientWidth;
+        objSlider.style.width = document.body.clientWidth;
+        divCanvasContainer.style.height = document.body.clientHeight - objToolbar.height - objSlider.offsetHeight - 66;
+    }
+    
+    function getHRESULT(errno) {
+        if (!errno)
+            return "N/A";
+        
+        var hr = (0x100000000 + errno).toString(16).toUpperCase();
+        if (hr.length > 8)
+            throw new Error("Number too large for HRESULT.");
+        
+        while (hr.length != 8)
+            hr = "0" + hr;
+        
+        return "0x" + hr;
+    }
+
+    function ipAddressFromToken(token) {
+        var rawIP = parseInt(token, 36);
+        if (isNaN(rawIP))
+            return "";
+        
+        var bytes = new Array(4);
+        bytes[0] = (rawIP & 0xFF000000) >> 24;
+        bytes[1] = (rawIP & 0x00FF0000) >> 16;
+        bytes[2] = (rawIP & 0x0000FF00) >> 8;
+        bytes[3] = (rawIP & 0x000000FF);
+        
+        return bytes.join(".");
+    }
+    
+    function showLastError() {
+        if (!lastError)
+            return;
+        
+        divErrorBox.children[1].innerText = lastError.method;
+        divErrorBox.children[3].innerText = lastError.code;
+        divErrorBox.children[4].innerText = lastError.reason;
+        
+        divErrorBox.style.width = Math.floor(document.body.clientWidth / 2);
+        divErrorBox.style.left = Math.floor(document.body.clientWidth / 4);
+        divErrorBox.style.bottom = 60;
+        
+        divErrorBox.style.display = "";
+        divErrorBox.children[0].style.height = divErrorBox.offsetHeight;
+    }
+    
+    function hideLastError() {
+        divErrorBox.style.display = "none";
+    }
+    
+    function clearErrors() {
+        spnErrorCount.innerText = cErrors = 0;
+        lastError = null;
+        divErrorBox.style.display = "none";
+    }
+    
+    function incrementErrors() {
+        spnErrorCount.innerText = ++cErrors;
+    }
+    
+    function selectColor() {
+        activeColor.style.width = "20px";
+        activeColor.style.height = "20px";
+        activeColor = this;
+        activeColor.style.width = "30px";
+        activeColor.style.height = "30px";
+    }
+    
+    function resetCanvas() {
+        var request = new Object;
+        request.url = serverAddress + sessionKey + "/display";
+        request.description = "Resetting canvas...";
+        request.onrespond = function(response) {
+            var s = Number(response.getAttribute("status"));
+            if (isNaN(s) || (s != 0))
+                return;
+            
+            var screenInfo = response.selectSingleNode("./screen");
+            if (!screenInfo)
+                return;
+            
+            while (tblCanvas.rows.length)
+                tblCanvas.deleteRow();
+            
+            pixelColors.clear();
+            
+            canvasWidth = Number(screenInfo.getAttribute("width"));
+            canvasHeight = Number(screenInfo.getAttribute("height"));
+            for (var i = 0; i < canvasHeight; i++) {
+                var row = tblCanvas.insertRow();
+                for (var j = 0; j < canvasWidth; j++) {
+                    var cell = row.insertCell();
+                    cell.width = 10;
+                    cell.height = 10;
+                    cell.bgColor = "#ffffff";
+                    
+                    pixelColors.push("H");
+                }
+            }
+            
+            var request = new Object;
+            request.url = serverAddress + sessionKey + "/display?image=";
+            request.url += pixelColors.join("");
+            request.description = "Applying a blank image...";
+            request.onrespond = function(response) {};
+            request.onfail = function(error) {};
+            requestQueue.push(request);
+        };
+        request.onfail = function(error) {
+            lastError = {
+                method: "display",
+                code: getHRESULT(error.errorCode),
+                reason: error.reason
+            };
+            incrementErrors();
+        };
+        requestQueue.push(request);
+    }
+    
+    function startDrawing() {
+        if (event.button == 1)
+            isDrawing = true;
+    }
+    
+    function preventDrawing() {
+        isDrawing = false;
+    }
+    
+    function stopDrawing() {
+        if (isDrawing && (event.button == 1)) {
+            isDrawing = false;
+            
+            var request = new Object;
+            request.url = serverAddress + sessionKey + "/display?image=";
+            request.url += pixelColors.join("");
+            request.description = "Applying your drawing...";
+            request.onrespond = function(response) {};
+            request.onfail = function(error) {};
+            requestQueue.push(request);
+        }
+    }
+    
+    function plotPixel() {
+        if (!isDrawing)
+            return;
+        
+        var elem = event.srcElement;
+        if (elem.tagName.toLowerCase() != "td")
+            return;
+        
+        elem.bgColor = activeColor.fillcolor + "";
+        
+        var x = elem.cellIndex;
+        var y = elem.parentElement.rowIndex;
+        pixelColors[y * canvasWidth + x] = activeColor.colorID;
+    }
+    
+    function flashlight(state) {
+        var request = new Object;
+        if (state) {
+            request.url = serverAddress + sessionKey + "/flashlight?state=on";
+            request.description = "Turning on the flashlight...";
+        }
+        else {
+            request.url = serverAddress + sessionKey + "/flashlight?state=off";
+            request.description = "Turning off the flashlight...";
+        }
+        
+        request.onrespond = function(response) {
+            var s = Number(response.getAttribute("status"));
+            if (isNaN(s) || (s != 0)) {
+                lastError = {
+                    method: "flashlight",
+                    code: s,
+                    reason: response.text
+                };
+                incrementErrors();
+            }
+        };
+        request.onfail = function(error) {
+            lastError = {
+                method: "flashlight",
+                code: getHRESULT(error.errorCode),
+                reason: error.reason
+            };
+            incrementErrors();
+        };
+        requestQueue.push(request);
+    }
+    
+    function vibrate(duration) {
+        var request = new Object;
+        request.url = serverAddress + sessionKey + "/vibrate?duration=" + duration;
+        request.description = "Vibrating...";
+        request.onrespond = function(response) {
+            var s = Number(response.getAttribute("status"));
+            if (isNaN(s) || (s != 0)) {
+                lastError = {
+                    method: "vibrate",
+                    code: s,
+                    reason: response.text
+                };
+                incrementErrors();
+            }
+        };
+        request.onfail = function(error) {
+            lastError = {
+                method: "vibrate",
+                code: getHRESULT(error.errorCode),
+                reason: error.reason
+            };
+            incrementErrors();
+        };
+        requestQueue.push(request);
+    }
+    </script>
+    
+    <script for="objToolbar" event="ButtonClick(Button)" language="jscript">
+    switch (Button.Key) {
+    case "ResetCanvas" :
+        resetCanvas();
+        break;
+    case "EndSession" :
+        endSession();
+        break;
+    case "Flashlight" :
+        flashlight(Button.Value == 1);
+        break;
+    case "Vibrate" :
+        vibrate(lastSelectedDur);
+        break;
+    case "Brightness" :
+        objSlider.style.display = (Button.Value == 1) ? "" : "none";
+        adjustLayout();
+        break;
+    }
+    </script>
+    
+    <script for="objToolbar" event="ButtonMenuClick(ButtonMenu)" language="jscript">
+    switch (ButtonMenu.Key) {
+    case "OneSec" :
+        vibrate(lastSelectedDur = 1000);
+        break;
+    case "TwoSec" :
+        vibrate(lastSelectedDur = 2000);
+        break;
+    case "FourSec" :
+        vibrate(lastSelectedDur = 4000);
+        break;
+    case "EightSec" :
+        vibrate(lastSelectedDur = 8000);
+        break;
+    }
+    </script>
+    
+    <script for="objSlider" event="Change()" language="jscript">
+    var request = new Object;
+    request.url = serverAddress + sessionKey + "/brightness?degree=" + objSlider.Value;
+    request.description = "Changing the screen brightness...";
+    request.onrespond = function(response) {
+        var s = Number(response.getAttribute("status"));
+        if (isNaN(s) || (s != 0)) {
+            lastError = {
+                method: "vibrate",
+                code: s,
+                reason: response.text
+            };
+            incrementErrors();
+        }
+    };
+    request.onfail = function(error) {
+        lastError = {
+            method: "vibrate",
+            code: getHRESULT(error.errorCode),
+            reason: error.reason
+        };
+        incrementErrors();
+    };
+    requestQueue.push(request);
+    </script>
+    
+    <style type="text/css">
+    v\:* {
+        behavior: url(#default#VML);
+        display: inline-block;
+    }
+    
+    #frmSessionCreation {
+        font-family: verdana;
+    }
+    
+    #btnConnect {
+        margin-top: 10px;
+        margin-bottom: 10px;
+        zoom: 140%;
+    }
+    
+    #spinner {
+        width: 30px;
+        height: 30px;
+    }
+    
+    #divConnError {
+        width: 350px;
+        padding: 5px;
+        border: 3px groove activeborder;
+        background-color: infobackground;
+    }
+    
+    #divConnError p {
+        margin: 5px;
+    }
+    
+    #divConnError v\:image {
+        width: 32px;
+        height: 32px;
+        margin-right: 4px;
+    }
+    
+    #divSessionControl {
+        margin: 0;
+        padding: 0;
+        height: 100%;
+        cursor: default;
+    }
+        
+    #tblPalette {
+        margin: 0;
+        border: 3px solid slateblue;
+    }
+    
+    #tblPalette v\:oval {
+        cursor: hand;
+    }
+    
+    #divCanvasContainer {
+        margin: 0;
+        padding: 0;
+        width: 100%;
+        overflow: scroll;
+    }
+    
+    #tblCanvas {
+        margin: 0;
+        border: 1px solid black;
+        border-collapse: collapse;
+        font-size: 1px;
+    }
+    
+    #tblStatusBar {
+        margin: 0;
+        background-color: threedface;
+        font: status-bar;
+    }
+    
+    #divErrorBox {
+        position: absolute;
+        font-family: verdana;
+        padding: 9px;
+    }
+    
+    #divErrorBox v\:roundrect {
+        position: absolute;
+        left: 0;
+        top: 0;
+        width: 100%;
+        height: 100%;
+        z-index: -1;
+    }
+    </style>
+</head>
+<body scroll="auto">
+    <form id="frmSessionCreation" onsubmit="return false;">
+        <h1>Connect to your Android device</h1>
+        <label for="txtComputerName">This computer name:</label>
+        <input type="text" id="txtComputerName" readonly><br>
+        <label for="txtDeviceToken">Device Token:</label>
+        <input type="text" id="txtDeviceToken"><br>
+        <button id="btnConnect">Connect</button>
+        <v:image id="spinner" src="assets/images/spinner.gif" style="display: none;" />
+        <div id="divConnError" style="display: none;">
+            <p><v:image src="assets/images/error.gif" /><big id="bConnErrorTitle"></big></p>
+            <p>Reason: <span id="spnConnErrorReason"></span></p>
+            <p>Error code: <span id="spnConnErrorCode"></span></p>
+        </div>
+    </form>
+    <div id="divSessionControl" style="display: none;">
+        <object id="objToolbar" classid="clsid:8B2ADD10-33B7-4506-9569-0A1E1DBBEBAE"></object>
+        <object id="objSlider" classid="clsid:0B314611-2C19-4AB4-8513-A6EEA569D3C4"></object>
+        <table id="tblPalette" height="40px"></table>
+        <div id="divCanvasContainer">
+            <table id="tblCanvas"></table>
+        </div>
+        <table id="tblStatusBar" cellspacing="0" cellpadding="4px" width="100%" height="20px">
+            <tr>
+                <td id="tdRequestStatus" valign="middle"></td>
+                <td align="right" valign="middle" width="50px">
+                    <img src="assets/images/error-sb.png" height="100%">
+                    <span id="spnErrorCount">0</span>
+                </td>
+            </tr>
+        </table>
+        <div id="divErrorBox" style="display: none;">
+            <v:roundrect fillcolor="#c8c8c8" stroked="False" arcsize="0.4" />
+            <span style="color: blue"></span>:<br>
+            <span style="color: red"></span>&nbsp;&nbsp;
+            <span></span>
+        </div>
+    </div>
+</body>
+</html>
