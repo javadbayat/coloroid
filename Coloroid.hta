@@ -118,7 +118,6 @@
         button.ToolTipText = "Adjust the screen brightness of the device";
         button = objToolbar.Buttons.Add(7, "BatteryStatus", "Battery Status", 0, "Battery");
         button.ToolTipText = "Get the status of the device battery";
-        button.Enabled = false;
         
         objSlider.Min = 0;
         objSlider.Max = 255;
@@ -517,6 +516,25 @@
         };
         requestQueue.push(request);
     }
+    
+    function showBatteryStatus() {
+        showModalDialog("dialogs/battery-status.htm", [function(callback) {
+            var request = new Object;
+            request.url = serverAddress + sessionKey + "/battery";
+            request.description = "Getting battery status...";
+            request.onrespond = callback;
+            request.onfail = function(error) {
+                this.onrespond();
+                lastError = {
+                    method: "battery",
+                    code: getHRESULT(error.errorCode),
+                    reason: error.reason
+                };
+                incrementErrors();
+            };
+            requestQueue.push(request);
+        }], "dialogWidth: 400px; dialogHeight: 300px; resizable: yes");
+    }
     </script>
     
     <script for="objToolbar" event="ButtonClick(Button)" language="jscript">
@@ -536,6 +554,9 @@
     case "Brightness" :
         objSlider.style.display = (Button.Value == 1) ? "" : "none";
         adjustLayout();
+        break;
+    case "BatteryStatus" :
+        showBatteryStatus();
         break;
     }
     </script>

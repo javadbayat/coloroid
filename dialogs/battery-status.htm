@@ -1,0 +1,101 @@
+<html>
+<head>
+    <title>Battery Status</title>
+    <meta name="author" content="Javad Bayat">
+    <meta http-equiv="content-type" content="text/html; charset = UTF-8">
+    <meta http-equiv="MSThemeCompatible" content="Yes">
+    <script language="jscript">
+    onload = function() {
+        spinner.style.position = "absolute";
+        spinner.style.left = Math.floor(document.body.clientWidth / 2 - 32);
+        spinner.style.top = Math.floor(document.body.clientHeight / 2 - 32);
+
+        dialogArguments[0](processResponse);
+    };
+    
+    onresize = function() {
+        spinner.style.left = Math.floor(document.body.clientWidth / 2 - 32);
+        spinner.style.top = Math.floor(document.body.clientHeight / 2 - 32);
+    };
+    
+    function refresh() {
+        tblBatteryStatus.style.display = "none";
+        spinner.style.display = "";
+        document.onclick = null;
+        dialogArguments[0](processResponse);
+    }
+    
+    function processResponse(response) {
+        if (!response) {
+            window.close();
+            return;
+        }
+        
+        var s = Number(response.getAttribute("status"));
+        if (isNaN(s) || (s != 0)) {
+            window.close();
+            return;
+        }
+        
+        var entries = [
+            "./health",
+            "./percentage",
+            "./plugged",
+            "./status",
+            "./temperature",
+            "./current"
+        ];
+        
+        for (var i = 0; i < entries.length; i++) {
+            var node = response.selectSingleNode(entries[i]);
+            if (node)
+                tblBatteryStatus.rows[i].cells[1].innerText = node.text;
+        }
+        
+        spinner.style.display = "none";
+        tblBatteryStatus.style.display = "";
+        document.onclick = refresh;
+    }
+    </script>
+    
+    <style type="text/css">
+        body {
+            font-family: verdana;
+        }
+        
+        td {
+            text-align: center;
+            vertical-align: middle;
+        }
+    </style>
+</head>
+<body bgcolor="infobackground" scroll="auto">
+    <img id="spinner" src="../assets/images/spinner2.gif">
+    <table id="tblBatteryStatus" border="3" cellpadding="5" width="100%" height="100%" style="display: none;">
+        <tr>
+            <td>Health</td>
+            <td></td>
+        </tr>
+        <tr>
+            <td>Percentage</td>
+            <td></td>
+        </tr>
+        <tr>
+            <td>Plugged</td>
+            <td></td>
+        </tr>
+        <tr>
+            <td>Status</td>
+            <td></td>
+        </tr>
+        <tr>
+            <td>Temperature</td>
+            <td></td>
+        </tr>
+        <tr>
+            <td>Current</td>
+            <td></td>
+        </tr>
+    </table>
+</body>
+</html>
