@@ -1541,7 +1541,7 @@ def test(HandlerClass=BaseHTTPRequestHandler,
             sys.exit(0)
 
 if __name__ == '__main__':
-    localIP = os.popen("ifconfig | grep inet | tail -1 | awk '{print $2}'").read().rstrip("\n")
+    localIP = os.popen("ifconfig | grep -w inet | tail -1 | awk '{print $2}'").read().rstrip("\n")
     test(
         HandlerClass=ColoroidRequestHandler,
         ServerClass=ThreadingHTTPServer,
